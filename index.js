@@ -3,14 +3,16 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const express = require('express');
 const dotenv = require('dotenv');
+const cors = require('cors');
 
 const { MongoClient, ServerApiVersion } = require('mongodb');
 dotenv.config();
 const uri = process.env.MONGODB_URI;
 
 const app = express();
-
 const PORT = process.env.PORT;
+
+app.use(cors());
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -25,6 +27,18 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+
+    const db = client.db("StudyNook");
+    const roomsCollection = db.collection("rooms");
+
+    app.post("/rooms", async (req, res) => {
+      const roomData = req.body
+      const result = await roomsCollection.insertOne(roomData);
+
+      res.json(result);
+    })
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
