@@ -13,6 +13,7 @@ const app = express();
 const PORT = process.env.PORT;
 
 app.use(cors());
+app.use(express.json());
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -31,9 +32,18 @@ async function run() {
     const db = client.db("StudyNook");
     const roomsCollection = db.collection("rooms");
 
+    // GET: For getting or create api and show data
+    app.get('/rooms', async (req, res) => {
+      const result = await roomsCollection.find().toArray();
+      res.json(result);
+    })
+
+    // POST: For add room
     app.post("/rooms", async (req, res) => {
       const roomData = req.body
+      // console.log("Received Room:", roomData);
       const result = await roomsCollection.insertOne(roomData);
+      // console.log("Mongo Result:", result);
 
       res.json(result);
     })
@@ -44,7 +54,7 @@ async function run() {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
-    await client.close();
+    // await client.close();
   }
 }
 run().catch(console.dir);
