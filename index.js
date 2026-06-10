@@ -50,10 +50,23 @@ async function run() {
 
     // GET: Single room details
     app.get("/rooms/:id", async (req, res) => {
-      const { id } = req.params
+  try {
+    const { id } = req.params;
 
-      const result = await roomsCollection.findOne({_id: new ObjectId(id)});
-    })
+    const result = await roomsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!result) {
+      return res.status(404).json({ message: "Room not found" });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
     // Send a ping to confirm a successful connection
