@@ -1,11 +1,11 @@
 const dns = require("node:dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
-const express = require('express');
-const dotenv = require('dotenv');
-const cors = require('cors');
+const express = require("express");
+const dotenv = require("dotenv");
+const cors = require("cors");
 
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 dotenv.config();
 const uri = process.env.MONGODB_URI;
 
@@ -21,7 +21,7 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
@@ -33,45 +33,76 @@ async function run() {
     const roomsCollection = db.collection("rooms");
 
     // GET: For getting or create api and show data
-    app.get('/rooms', async (req, res) => {
+    app.get("/rooms", async (req, res) => {
       const result = await roomsCollection.find().toArray();
       res.json(result);
-    })
+    });
 
     // POST: For add room
     app.post("/rooms", async (req, res) => {
-      const roomData = req.body
+      const roomData = req.body;
       // console.log("Received Room:", roomData);
       const result = await roomsCollection.insertOne(roomData);
       // console.log("Mongo Result:", result);
 
       res.json(result);
-    })
+    });
 
     // GET: Single room details
     app.get("/rooms/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
+      try {
+        const { id } = req.params;
 
-    const result = await roomsCollection.findOne({
-      _id: new ObjectId(id),
+        const result = await roomsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!result) {
+          return res.status(404).json({ message: "Room not found" });
+        }
+
+        res.json(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
-    if (!result) {
-      return res.status(404).json({ message: "Room not found" });
-    }
+    // PUT: Update api forr update room data
+    app.put("/rooms/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updatedData = req.body;
 
-    res.json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message });
-  }
-});
+        // safety: remove _id if sent from frontend
+        delete updatedData._id;
 
+        const result = await roomsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: updatedData,
+          },
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "Room not found" });
+        }
+
+        res.json({
+          message: "Room updated successfully",
+          modifiedCount: result.modifiedCount,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!",
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -80,9 +111,9 @@ async function run() {
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-    res.send("Data is Running");
-})
+  res.send("Data is Running");
+});
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`)
-})
+  console.log(`Server running on port ${PORT}`);
+});
