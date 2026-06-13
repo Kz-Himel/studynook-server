@@ -100,11 +100,23 @@ async function run() {
     });
 
     // DELETE: for delete room
-    app.delete("/rooms/:id", async (req, res) => {
-      const { id } = req.params;
-      const result = await roomsCollection.deleteOne({ _id: new ObjectId(id) });
-      res.json(result);
+   app.delete("/rooms/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const result = await roomsCollection.deleteOne({
+      _id: new ObjectId(id),
     });
+
+    if (result.deletedCount > 0) {
+      return res.send({ success: true });
+    }
+
+    res.send({ success: false });
+  } catch (err) {
+    res.status(500).send({ success: false, error: err.message });
+  }
+});
 
     // BOOKING COLLECTION START HERE
 
@@ -197,22 +209,26 @@ async function run() {
   try {
     const id = req.params.id;
 
-    console.log("DELETE ID:", id);
-
     const result = await bookingsCollection.deleteOne({
       _id: new ObjectId(id),
     });
 
-    console.log("RESULT:", result);
-
     if (result.deletedCount > 0) {
-      return res.send({ success: true });
+      return res.send({
+        success: true,
+        message: "Booking deleted",
+      });
     }
 
-    return res.send({ success: false, message: "Not found" });
+    res.status(404).send({
+      success: false,
+      message: "Booking not found",
+    });
   } catch (error) {
-    console.log(error);
-    res.status(500).send({ success: false, error: error.message });
+    res.status(500).send({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
