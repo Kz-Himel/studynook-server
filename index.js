@@ -110,85 +110,109 @@ async function run() {
 
     // GET: fetch my-bookings data
     app.get("/my-bookings/:userId", async (req, res) => {
-  try {
-    const userId = new ObjectId(req.params.userId);
+      try {
+        const userId = new ObjectId(req.params.userId);
 
-    const result = await bookingsCollection
-      .aggregate([
-        {
-          $match: { userId },
-        },
-        {
-          $lookup: {
-            from: "rooms",
-            localField: "roomId",
-            foreignField: "_id",
-            as: "room",
-          },
-        },
-        {
-          $unwind: {
-            path: "$room",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-      ])
-      .toArray();
+        const result = await bookingsCollection
+          .aggregate([
+            {
+              $match: { userId },
+            },
+            {
+              $lookup: {
+                from: "rooms",
+                localField: "roomId",
+                foreignField: "_id",
+                as: "room",
+              },
+            },
+            {
+              $unwind: {
+                path: "$room",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+          ])
+          .toArray();
 
-    res.send(result);
-  } catch (error) {
-    console.error("Fetch Bookings Error:", error);
+        res.send(result);
+      } catch (error) {
+        console.error("Fetch Bookings Error:", error);
 
-    res.status(500).send({
-      success: false,
-      message: error.message,
+        res.status(500).send({
+          success: false,
+          message: error.message,
+        });
+      }
     });
-  }
-});
 
     // POST: Booking room by post method
     app.post("/my-bookings", async (req, res) => {
-  try {
-    const booking = req.body;
+      try {
+        const booking = req.body;
 
-    const newBooking = {
-      ...booking,
-      roomId: new ObjectId(booking.roomId),
-      userId: new ObjectId(booking.userId),
-      createdAt: new Date(),
-      status: booking.status || "confirmed",
-    };
+        const newBooking = {
+          ...booking,
+          roomId: new ObjectId(booking.roomId),
+          userId: new ObjectId(booking.userId),
+          createdAt: new Date(),
+          status: booking.status || "confirmed",
+        };
 
-    // Conflict check
-    const exists = await bookingsCollection.findOne({
-      roomId: newBooking.roomId,
-      date: newBooking.date,
-      status: "confirmed",
-      startTime: { $lt: newBooking.endTime },
-      endTime: { $gt: newBooking.startTime },
+        // Conflict check
+        const exists = await bookingsCollection.findOne({
+          roomId: newBooking.roomId,
+          date: newBooking.date,
+          status: "confirmed",
+          startTime: { $lt: newBooking.endTime },
+          endTime: { $gt: newBooking.startTime },
+        });
+
+        if (exists) {
+          return res.status(400).send({
+            success: false,
+            message: "This time slot is already booked",
+          });
+        }
+
+        const result = await bookingsCollection.insertOne(newBooking);
+
+        res.status(201).send({
+          success: true,
+          insertedId: result.insertedId,
+          message: "Booking created successfully",
+        });
+      } catch (error) {
+        console.error("Booking Error:", error);
+
+        res.status(500).send({
+          success: false,
+          message: error.message,
+        });
+      }
     });
 
-    if (exists) {
-      return res.status(400).send({
-        success: false,
-        message: "This time slot is already booked",
-      });
+    // DELETE: Cancel booking from my booking
+    app.delete("/my-bookings/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    console.log("DELETE ID:", id);
+
+    const result = await bookingsCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
+
+    console.log("RESULT:", result);
+
+    if (result.deletedCount > 0) {
+      return res.send({ success: true });
     }
 
-    const result = await bookingsCollection.insertOne(newBooking);
-
-    res.status(201).send({
-      success: true,
-      insertedId: result.insertedId,
-      message: "Booking created successfully",
-    });
+    return res.send({ success: false, message: "Not found" });
   } catch (error) {
-    console.error("Booking Error:", error);
-
-    res.status(500).send({
-      success: false,
-      message: error.message,
-    });
+    console.log(error);
+    res.status(500).send({ success: false, error: error.message });
   }
 });
 
