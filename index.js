@@ -98,12 +98,42 @@ async function run() {
       }
     });
 
-    // DELETE: for delete room 
+    // DELETE: for delete room
     app.delete("/rooms/:id", async (req, res) => {
-      const {id} = req.params;
-      const result = await roomsCollection.deleteOne({_id: new ObjectId(id)});
+      const { id } = req.params;
+      const result = await roomsCollection.deleteOne({ _id: new ObjectId(id) });
       res.json(result);
-    })
+    });
+
+    // POST: Booking room by post method
+    app.post("/bookings", async (req, res) => {
+      const booking = req.body;
+
+      // conflict check
+      const exists = await bookingsCollection.findOne({
+        roomId: booking.roomId,
+        date: booking.date,
+        status: "confirmed",
+        startTime: { $lt: booking.endTime },
+        endTime: { $gt: booking.startTime },
+      });
+
+      if (exists) {
+        return res.status(400).send({
+          message: "This time slot is already booked",
+        });
+      }
+
+      const result = await bookingsCollection.insertOne({
+        ...booking,
+        createdAt: new Date(),
+      });
+
+      res.send({
+        success: true,
+        insertedId: result.insertedId,
+      });
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
