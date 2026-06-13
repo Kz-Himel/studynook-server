@@ -31,6 +31,7 @@ async function run() {
 
     const db = client.db("StudyNook");
     const roomsCollection = db.collection("rooms");
+    const bookingsCollection = db.collection("my-bookings");
 
     // GET: For getting or create api and show data
     app.get("/rooms", async (req, res) => {
@@ -105,36 +106,69 @@ async function run() {
       res.json(result);
     });
 
+    // BOOKING COLLECTION START HERE
+
     // POST: Booking room by post method
-    app.post("/bookings", async (req, res) => {
-      const booking = req.body;
+    app.post("/my-bookings", async (req, res) => {
+  const booking = req.body;
 
-      // conflict check
-      const exists = await bookingsCollection.findOne({
-        roomId: booking.roomId,
-        date: booking.date,
-        status: "confirmed",
-        startTime: { $lt: booking.endTime },
-        endTime: { $gt: booking.startTime },
-      });
+  const newBooking = {
+    ...booking,
+    roomId: new ObjectId(booking.roomId),
+    userId: new ObjectId(booking.userId),
+    createdAt: new Date(),
+  };
 
-      if (exists) {
-        return res.status(400).send({
-          message: "This time slot is already booked",
-        });
-      }
+  // 🔥 conflict check FIRST
+  const exists = await bookingsCollection.findOne({
+    roomId: newBooking.roomId,
+    date: newBooking.date,
+    status: "confirmed",
+    startTime: { $lt: newBooking.endTime },
+    endTime: { $gt: newBooking.startTime },
+  });
 
-      const result = await bookingsCollection.insertOne({
-        ...booking,
-        createdAt: new Date(),
-      });
-
-      res.send({
-        success: true,
-        insertedId: result.insertedId,
-      });
+  if (exists) {
+    return res.status(400).send({
+      message: "This time slot is already booked",
     });
+  }
 
+  // 🔥 insert ONLY ONCE
+  const result = await bookingsCollection.insertOne(newBooking);
+
+  res.send({
+    success: true,
+    insertedId: result.insertedId,
+  });
+});
+
+    // GET: fetch my-bookings data
+    app.get("/my-bookings/:userId", async (req, res) => {
+  const userId = new ObjectId(req.params.userId);
+
+  const result = await bookingsCollection.aggregate([
+    {
+      $match: { userId }
+    },
+    {
+      $lookup: {
+        from: "rooms",
+        localField: "roomId",
+        foreignField: "_id",
+        as: "room"
+      }
+    },
+    {
+      $unwind: {
+        path: "$room",
+        preserveNullAndEmptyArrays: true
+      }
+    }
+  ]).toArray();
+
+  res.send(result);
+});
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
