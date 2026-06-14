@@ -6,6 +6,7 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 dotenv.config();
 const uri = process.env.MONGODB_URI;
 
@@ -23,6 +24,37 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+// JWT key set
+const JWKS = createRemoteJWKSet(
+  new URL("http://localhost:3000/api/auth/jwks")
+)
+
+// Verify: JWT
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+
+    req.user = payload;
+
+    next();
+  } catch (error) {
+    return res.status(403).json({
+      message: "Forbidden",
+    });
+  }
+};
+
 
 async function run() {
   try {
@@ -49,6 +81,7 @@ async function run() {
       res.json(result);
     });
 
+    // ---------***Middleware***-----------
     // GET: Single room details
     app.get("/rooms/:id", async (req, res) => {
       try {
@@ -69,7 +102,7 @@ async function run() {
       }
     });
 
-    // PUT: Update api forr update room data
+    // PUT: Update api for update room data
     app.put("/rooms/:id", async (req, res) => {
       try {
         const { id } = req.params;
@@ -100,66 +133,60 @@ async function run() {
     });
 
     // DELETE: for delete room
-   app.delete("/rooms/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
+    app.delete("/rooms/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
 
-    const result = await roomsCollection.deleteOne({
-      _id: new ObjectId(id),
+        const result = await roomsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount > 0) {
+          return res.send({ success: true });
+        }
+
+        res.send({ success: false });
+      } catch (err) {
+        res.status(500).send({ success: false, error: err.message });
+      }
     });
-
-    if (result.deletedCount > 0) {
-      return res.send({ success: true });
-    }
-
-    res.send({ success: false });
-  } catch (err) {
-    res.status(500).send({ success: false, error: err.message });
-  }
-});
 
     // BOOKING COLLECTION START HERE
 
     // GET: fetch my-bookings data
-    app.get("/my-bookings/:userId", async (req, res) => {
-      try {
-        const userId = new ObjectId(req.params.userId);
+    app.get("/my-bookings", verifyToken, async (req, res) => {
+  try {
+    console.log("USER:", req.user);
 
-        const result = await bookingsCollection
-          .aggregate([
-            {
-              $match: { userId },
-            },
-            {
-              $lookup: {
-                from: "rooms",
-                localField: "roomId",
-                foreignField: "_id",
-                as: "room",
-              },
-            },
-            {
-              $unwind: {
-                path: "$room",
-                preserveNullAndEmptyArrays: true,
-              },
-            },
-          ])
-          .toArray();
+    const userId = new ObjectId(req.user.sub || req.user.id);
 
-        res.send(result);
-      } catch (error) {
-        console.error("Fetch Bookings Error:", error);
+    const result = await bookingsCollection
+      .aggregate([
+        {
+          $match: { userId },
+        },
+        {
+          $lookup: {
+            from: "rooms",
+            localField: "roomId",
+            foreignField: "_id",
+            as: "room",
+          },
+        },
+        {
+          $unwind: "$room",
+        },
+      ])
+      .toArray();
 
-        res.status(500).send({
-          success: false,
-          message: error.message,
-        });
-      }
-    });
+    res.send(result);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
 
     // POST: Booking room by post method
-    app.post("/my-bookings", async (req, res) => {
+    app.post("/my-bookings", verifyToken, async (req, res) => {
       try {
         const booking = req.body;
 
@@ -206,31 +233,31 @@ async function run() {
 
     // DELETE: Cancel booking from my booking
     app.delete("/my-bookings/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
+      try {
+        const id = req.params.id;
 
-    const result = await bookingsCollection.deleteOne({
-      _id: new ObjectId(id),
-    });
+        const result = await bookingsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
 
-    if (result.deletedCount > 0) {
-      return res.send({
-        success: true,
-        message: "Booking deleted",
-      });
-    }
+        if (result.deletedCount > 0) {
+          return res.send({
+            success: true,
+            message: "Booking deleted",
+          });
+        }
 
-    res.status(404).send({
-      success: false,
-      message: "Booking not found",
+        res.status(404).send({
+          success: false,
+          message: "Booking not found",
+        });
+      } catch (error) {
+        res.status(500).send({
+          success: false,
+          error: error.message,
+        });
+      }
     });
-  } catch (error) {
-    res.status(500).send({
-      success: false,
-      error: error.message,
-    });
-  }
-});
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
