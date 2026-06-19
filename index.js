@@ -87,14 +87,14 @@ async function run() {
       }
     });
 
-    // ✅ FIXED: CREATE ROOM (Only One Secured Post Route)
+    // CREATE ROOM (Only One Secured Post Route)
     app.post("/rooms", verifyToken, async (req, res) => {
       try {
         const roomData = req.body;
 
         const newRoom = {
           ...roomData,
-          userId: req.user.sub, // 👈 Token theke sub (Id) niye userId name DB te set hocche
+          userId: req.user.sub, //  Token theke sub (Id) niye userId name DB te set hocche
           createdAt: new Date(),
         };
 
@@ -109,11 +109,11 @@ async function run() {
     app.put("/rooms/:id", verifyToken, async (req, res) => {
       try {
         const roomId = req.params.id;
-        const userId = req.user.sub; // লগইন করা ইউজারের আইডি
+        const userId = req.user.sub; // Login user id
         const updatedData = req.body;
         delete updatedData._id;
 
-        // কন্ডিশনে roomId এবং userId দুটিই থাকতে হবে
+        // userId and roomId
         const result = await roomsCollection.updateOne(
           { _id: new ObjectId(roomId), userId: userId },
           { $set: updatedData },
@@ -139,7 +139,7 @@ async function run() {
 
         const result = await roomsCollection.deleteOne({
           _id: new ObjectId(roomId),
-          userId: userId, // নিশ্চিত করছে যে শুধুমাত্র ওনারই ডিলিট করতে পারবে
+          userId: userId,
         });
 
         if (result.deletedCount === 0) {
@@ -196,7 +196,7 @@ async function run() {
 
         const newBooking = {
           ...booking,
-          roomId: new ObjectId(String(booking.roomId)), // ✅ FIXED SAFE
+          roomId: new ObjectId(String(booking.roomId)),
           userId: req.user.sub,
           createdAt: new Date(),
           status: "confirmed",
@@ -235,18 +235,18 @@ async function run() {
 
     // MY-LISTINGS
     app.get("/my-listings", verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.sub;
+      try {
+        const userId = req.user.sub;
 
-    const rooms = await roomsCollection
-      .find({ userId: userId })   // 👈 শুধু নিজের rooms
-      .toArray();
+        const rooms = await roomsCollection
+          .find({ userId: userId }) // only my rooms
+          .toArray();
 
-    res.json(rooms);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+        res.json(rooms);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
 
     // DONT TOUCH===
     await client.db("admin").command({ ping: 1 });
