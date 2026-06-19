@@ -60,7 +60,7 @@ const verifyToken = async (req, res, next) => {
 // ================= MAIN =================
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("StudyNook");
     const roomsCollection = db.collection("rooms");
@@ -249,7 +249,7 @@ async function run() {
     });
 
     // DONT TOUCH===
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
 
     console.log("MongoDB connected successfully");
   } finally {
