@@ -7,16 +7,18 @@ const cors = require("cors");
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
+
 dotenv.config();
+
 const uri = process.env.MONGODB_URI;
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+// Mongo Client
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -25,256 +27,192 @@ const client = new MongoClient(uri, {
   },
 });
 
-// JWT key set
+// ================= FIXED JWKS =================
 const JWKS = createRemoteJWKSet(
-  new URL("http://localhost:3000/api/auth/jwks")
-)
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+);
 
-// Verify: JWT
+// ================= JWT VERIFY MIDDLEWARE =================
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers?.authorization;
 
   if (!authHeader) {
-    return res.status(401).json({
-      message: "Unauthorized",
-    });
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
   const token = authHeader.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
   try {
     const { payload } = await jwtVerify(token, JWKS);
 
-    req.user = payload;
-
+    req.user = payload; // 👈 important
     next();
-  } catch (error) {
-    return res.status(403).json({
-      message: "Forbidden",
-    });
+  } catch (err) {
+    console.log("JWT ERROR:", err);
+    return res.status(403).json({ message: "Invalid or expired token" });
   }
 };
 
-
+// ================= MAIN =================
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
     const db = client.db("StudyNook");
     const roomsCollection = db.collection("rooms");
     const bookingsCollection = db.collection("my-bookings");
 
-    // GET: For getting or create api and show data
+    // ================= ROOMS =================
+
     app.get("/rooms", async (req, res) => {
       const result = await roomsCollection.find().toArray();
       res.json(result);
     });
 
-    // POST: For add room
     app.post("/rooms", async (req, res) => {
-      const roomData = req.body;
-      // console.log("Received Room:", roomData);
-      const result = await roomsCollection.insertOne(roomData);
-      // console.log("Mongo Result:", result);
+      const result = await roomsCollection.insertOne(req.body);
+      res.json(result);
+    });
+
+    app.get("/rooms/:id", async (req, res) => {
+      try {
+        const result = await roomsCollection.findOne({
+          _id: new ObjectId(req.params.id),
+        });
+
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.put("/rooms/:id", async (req, res) => {
+      try {
+        const updatedData = req.body;
+        delete updatedData._id;
+
+        const result = await roomsCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: updatedData },
+        );
+
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.delete("/rooms/:id", async (req, res) => {
+      try {
+        const result = await roomsCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ================= BOOKINGS =================
+
+    // GET MY BOOKINGS (Secured)
+    app.get("/my-bookings", verifyToken, async (req, res) => {
+      console.log("JWT USER:", req.user);
+
+      const result = await bookingsCollection
+        .aggregate([
+          {
+            $match: {
+              userId: req.user.sub,
+            },
+          },
+          {
+            $lookup: {
+              from: "rooms",
+              localField: "roomId",
+              foreignField: "_id",
+              as: "room",
+            },
+          },
+          {
+            $unwind: {
+              path: "$room",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+        ])
+        .toArray();
+
+      console.log("FOUND:", result);
 
       res.json(result);
     });
 
-    // ---------***Middleware***-----------
-    // GET: Single room details
-    app.get("/rooms/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-
-        const result = await roomsCollection.findOne({
-          _id: new ObjectId(id),
-        });
-
-        if (!result) {
-          return res.status(404).json({ message: "Room not found" });
-        }
-
-        res.json(result);
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    // PUT: Update api for update room data
-    app.put("/rooms/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const updatedData = req.body;
-
-        // safety: remove _id if sent from frontend
-        delete updatedData._id;
-
-        const result = await roomsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $set: updatedData,
-          },
-        );
-
-        if (result.matchedCount === 0) {
-          return res.status(404).json({ message: "Room not found" });
-        }
-
-        res.json({
-          message: "Room updated successfully",
-          modifiedCount: result.modifiedCount,
-        });
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    // DELETE: for delete room
-    app.delete("/rooms/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-
-        const result = await roomsCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-
-        if (result.deletedCount > 0) {
-          return res.send({ success: true });
-        }
-
-        res.send({ success: false });
-      } catch (err) {
-        res.status(500).send({ success: false, error: err.message });
-      }
-    });
-
-    // BOOKING COLLECTION START HERE
-
-    // GET: fetch my-bookings data
-    app.get("/my-bookings", verifyToken, async (req, res) => {
-  try {
-    console.log("USER:", req.user);
-
-    const userId = new ObjectId(req.user.sub || req.user.id);
-
-    const result = await bookingsCollection
-      .aggregate([
-        {
-          $match: { userId },
-        },
-        {
-          $lookup: {
-            from: "rooms",
-            localField: "roomId",
-            foreignField: "_id",
-            as: "room",
-          },
-        },
-        {
-          $unwind: "$room",
-        },
-      ])
-      .toArray();
-
-    res.send(result);
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});
-
-    // POST: Booking room by post method
+    // CREATE BOOKING
     app.post("/my-bookings", verifyToken, async (req, res) => {
       try {
         const booking = req.body;
 
         const newBooking = {
           ...booking,
-          roomId: new ObjectId(booking.roomId),
-          userId: new ObjectId(booking.userId),
+          roomId: new ObjectId(String(booking.roomId)), // ✅ FIXED SAFE
+          userId: req.user.sub,
           createdAt: new Date(),
-          status: booking.status || "confirmed",
-        };
-
-        // Conflict check
-        const exists = await bookingsCollection.findOne({
-          roomId: newBooking.roomId,
-          date: newBooking.date,
           status: "confirmed",
-          startTime: { $lt: newBooking.endTime },
-          endTime: { $gt: newBooking.startTime },
-        });
-
-        if (exists) {
-          return res.status(400).send({
-            success: false,
-            message: "This time slot is already booked",
-          });
-        }
+        };
 
         const result = await bookingsCollection.insertOne(newBooking);
 
-        res.status(201).send({
-          success: true,
-          insertedId: result.insertedId,
-          message: "Booking created successfully",
-        });
-      } catch (error) {
-        console.error("Booking Error:", error);
-
-        res.status(500).send({
-          success: false,
-          message: error.message,
-        });
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
       }
     });
 
-    // DELETE: Cancel booking from my booking
-    app.delete("/my-bookings/:id", async (req, res) => {
+    // DELETE BOOKING (SECURED)
+    app.delete("/my-bookings/:id", verifyToken, async (req, res) => {
       try {
-        const id = req.params.id;
+        const bookingId = req.params.id;
+        const userId = req.user.sub;
 
         const result = await bookingsCollection.deleteOne({
-          _id: new ObjectId(id),
+          _id: new ObjectId(bookingId),
+          userId: userId,
         });
 
-        if (result.deletedCount > 0) {
-          return res.send({
-            success: true,
-            message: "Booking deleted",
-          });
+        if (result.deletedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Booking not found or unauthorized" });
         }
 
-        res.status(404).send({
-          success: false,
-          message: "Booking not found",
-        });
-      } catch (error) {
-        res.status(500).send({
-          success: false,
-          error: error.message,
-        });
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
       }
     });
 
-    // Send a ping to confirm a successful connection
+    // DONT TOUCH===
     await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
+
+    console.log("MongoDB connected successfully");
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // keep alive
   }
 }
+
 run().catch(console.dir);
 
+// ROOT
 app.get("/", (req, res) => {
-  res.send("Data is Running");
+  res.send("Server is running");
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
