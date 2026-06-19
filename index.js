@@ -68,16 +68,13 @@ async function run() {
 
     // ================= ROOMS =================
 
+    // ALL ROOMS
     app.get("/rooms", async (req, res) => {
       const result = await roomsCollection.find().toArray();
       res.json(result);
     });
 
-    app.post("/rooms", async (req, res) => {
-      const result = await roomsCollection.insertOne(req.body);
-      res.json(result);
-    });
-
+    // SINGLE ROOM DETAILS
     app.get("/rooms/:id", async (req, res) => {
       try {
         const result = await roomsCollection.findOne({
@@ -90,15 +87,43 @@ async function run() {
       }
     });
 
-    app.put("/rooms/:id", async (req, res) => {
+    // ✅ FIXED: CREATE ROOM (Only One Secured Post Route)
+    app.post("/rooms", verifyToken, async (req, res) => {
       try {
+        const roomData = req.body;
+
+        const newRoom = {
+          ...roomData,
+          userId: req.user.sub, // 👈 Token theke sub (Id) niye userId name DB te set hocche
+          createdAt: new Date(),
+        };
+
+        const result = await roomsCollection.insertOne(newRoom);
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // EDIT ROOM (Only Owner Can Edit)
+    app.put("/rooms/:id", verifyToken, async (req, res) => {
+      try {
+        const roomId = req.params.id;
+        const userId = req.user.sub; // লগইন করা ইউজারের আইডি
         const updatedData = req.body;
         delete updatedData._id;
 
+        // কন্ডিশনে roomId এবং userId দুটিই থাকতে হবে
         const result = await roomsCollection.updateOne(
-          { _id: new ObjectId(req.params.id) },
+          { _id: new ObjectId(roomId), userId: userId },
           { $set: updatedData },
         );
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(403)
+            .json({ message: "You are not the owner of this room!" });
+        }
 
         res.json(result);
       } catch (err) {
@@ -106,11 +131,22 @@ async function run() {
       }
     });
 
-    app.delete("/rooms/:id", async (req, res) => {
+    // DELETE: Room by owner
+    app.delete("/rooms/:id", verifyToken, async (req, res) => {
       try {
+        const roomId = req.params.id;
+        const userId = req.user.sub;
+
         const result = await roomsCollection.deleteOne({
-          _id: new ObjectId(req.params.id),
+          _id: new ObjectId(roomId),
+          userId: userId, // নিশ্চিত করছে যে শুধুমাত্র ওনারই ডিলিট করতে পারবে
         });
+
+        if (result.deletedCount === 0) {
+          return res
+            .status(403)
+            .json({ message: "You are not the owner of this room!" });
+        }
 
         res.json(result);
       } catch (err) {
