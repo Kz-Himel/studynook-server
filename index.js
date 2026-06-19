@@ -233,6 +233,21 @@ async function run() {
       }
     });
 
+    // MY-LISTINGS
+    app.get("/my-listings", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+
+    const rooms = await roomsCollection
+      .find({ userId: userId })   // 👈 শুধু নিজের rooms
+      .toArray();
+
+    res.json(rooms);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
     // DONT TOUCH===
     await client.db("admin").command({ ping: 1 });
 
